@@ -1,79 +1,61 @@
 const indexedDB =
-    window.indexedDB ||
-    window.mozIndexedDB ||
-    window.webkitIndexedDB ||
-    window.msIndexedDB ||
-    window.shimIndexedDB;
-
-// create budet db
+  window.indexedDB ||
+  window.mozeIndexedDB ||
+  window.webkitIndexedDB ||
+  window.msIndexedDB ||
+  window.shimIndexedDB;
 
 let db;
+const request = indexedDB.open("budget", 1);
 
-// request
-const request = indexedDB.open('budget', 1);
+request.onupgradeneeded = ({ target }) => {
+  let db = target.result;
+  db.createObjectStore("pending", { autoIncrement: true });
+};
 
-// request on upgrade 
-// Install -> create bulk (pending) collection 
+request.onsuccess = ({ target }) => {
+  db = target.result;
+  if (navigator.onLine) {
+    checkDatabase();
+  }
+};
 
-request.onupgradeneeded = ({
-    target
-}) => {
-    db = target.result;
-    db.createObjectStore("pending", {
-        autoIncrement: true
-    })
+function saveRecord(data) {
+  const transaction = db.transaction(["pending"], "readwrite");
+  const store = transaction.objectStore("pending");
+  store.add(data);
 }
 
-// request on success
-// listen to when back online and send records 
-request.onsuccess = ({
-    target
-}) => {
-    db = target.result;
-    if (navigator.onLine) {
-        checkDatabase();
-    }
-}
+request.onerror = function(event) {
+    console.log("Woops!" + event.target.errorCode)
+  };
 
-request.onerror = function (event) {
-    console.log("Request Error")
-}
+  function checkDatabase() {
 
-// saveRecord -> save to indexedBD
-function saveRecord(entry) {
+
     const transaction = db.transaction(["pending"], "readwrite");
+    const store = transaction.objectStore("pending");
+    const getAll = store.getAll();
 
-    const storeData = transaction.objectStore('pending')
+    getAll.onsuccess = function() {
+      if (getAll.result.length > 0) {
+        fetch("/api/transaction/bulk", {
+          method: "POST",
+          body: JSON.stringify(getAll.result),
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            "Content-Type": "application/json"
+          }
+        })
+        .then(response => response.json())
+        .then(() => {
+          const transaction = db.transaction(["pending"], "readwrite");
+          const store = transaction.objectStore("pending");
+          store.clear();
+        });
+      }
+    };
 
-    storeData.add(entry)
-}
-
-function checkDatabase() {
-    const transaction = db.transaction(["pending"], "readwrite");
-
-    const storeData = transaction.objectStore('pending')
-
-    const AllStored = storeData.getAll();
-
-    AllStored.onsuccess = function () {
-        if (AllStored.result.length > 0) {
-            fetch("/api/transaction/bulk", {
-                    method: "POST",
-                    body: JSON.stringify(AllStored.result),
-                    headers: {
-                        Accept: "application/json, text/plain, */*",
-                        "Content-Type": "application/json"
-                    }
-                }).then(response => response.json())
-                .then(() => {
-                    const transation = db.transation(['pending'], "readwrite");
-
-                    const storeData = transation.objectStore('pending')
-
-                    storeData.clear();
-                })
-        }
-    }
-}
+};
 
 window.addEventListener("online", checkDatabase);
